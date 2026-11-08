@@ -16,7 +16,6 @@ import net.minestom.server.instance.InstanceManager;
 import net.minestom.server.instance.block.Block;
 import net.minestom.server.item.ItemStack;
 import net.minestom.server.item.Material;
-import net.minestom.server.utils.time.TimeUnit;
 import net.kyori.adventure.text.Component;
 
 import java.io.BufferedReader;
@@ -25,15 +24,21 @@ import java.util.HashSet;
 import java.util.Set;
 
 public class Main {
-    public static final Set<String> OPS = new HashSet<>();
-    public static final Set<String> BANNED = new HashSet<>();
-    public static final Set<String> MUTED = new HashSet<>();
-    public static final Set<String> WHITELIST = new HashSet<>();
+    public static Set<String> OPS = new HashSet<>();
+    public static Set<String> BANNED = new HashSet<>();
+    public static Set<String> MUTED = new HashSet<>();
+    public static Set<String> WHITELIST = new HashSet<>();
     public static boolean whitelistEnabled = false;
-    public static InstanceContainer worldInstance; // Сохраняем мир для /time и /weather
+    public static InstanceContainer worldInstance;
 
     public static void main(String[] args) {
         System.out.println("Запускаем наше кастомное ядро...");
+
+        OPS = DataManager.loadOps();
+        BANNED = DataManager.loadBans();
+        MUTED = DataManager.loadMutes();
+        WHITELIST = DataManager.loadWhitelist();
+        System.out.println("Загружено: OP=" + OPS.size() + ", Баны=" + BANNED.size() + ", Муты=" + MUTED.size() + ", Whitelist=" + WHITELIST.size());
 
         MinecraftServer server = MinecraftServer.init();
         CommandManager commandManager = MinecraftServer.getCommandManager();
@@ -49,7 +54,6 @@ public class Main {
 
         GlobalEventHandler handler = MinecraftServer.getGlobalEventHandler();
 
-        // Вход на сервер (бан / вайтлист)
         handler.addListener(AsyncPlayerConfigurationEvent.class, event -> {
             Player player = event.getPlayer();
             String name = player.getUsername().toLowerCase();
@@ -66,7 +70,6 @@ public class Main {
             player.setRespawnPoint(new Pos(0, 45, 0));
         });
 
-        // Мут в чате
         handler.addListener(PlayerChatEvent.class, event -> {
             if (MUTED.contains(event.getPlayer().getUsername().toLowerCase())) {
                 event.setCancelled(true);
@@ -78,7 +81,6 @@ public class Main {
             event.getPlayer().sendMessage(Component.text("§aДобро пожаловать!"));
         });
 
-        // === РЕГИСТРАЦИЯ КОМАНД ===
         registerStop(commandManager);
         registerAdminCommands(commandManager);
 
@@ -88,47 +90,82 @@ public class Main {
     }
 
     private static void registerAdminCommands(CommandManager cm) {
-        // --- Базовые ---
         registerAdmin(cm, "op", (s, args) -> {
-            if (args.length > 0) { OPS.add(args[0].toLowerCase()); s.sendMessage(Component.text("§aOP выдан " + args[0])); }
+            if (args.length > 0) {
+                OPS.add(args[0].toLowerCase());
+                DataManager.saveOps(OPS);
+                s.sendMessage(Component.text("§aOP выдан " + args[0]));
+            }
         });
         registerAdmin(cm, "deop", (s, args) -> {
-            if (args.length > 0) { OPS.remove(args[0].toLowerCase()); s.sendMessage(Component.text("§aOP забран у " + args[0])); }
-        });
-
-        // --- Баны и Кики ---
-        registerAdmin(cm, "kick", (s, args) -> {
             if (args.length > 0) {
-                Player p = MinecraftServer.getConnectionManager().getOnlinePlayerByUsername(args[0]);
-                String reason = args.length > 1 ? String.join(" ", java.util.Arrays.copyOfRange(args, 1, args.length)) : "Причина не указана";
-                if (p != null) { p.kick(Component.text("§cКикнут: " + reason)); s.sendMessage(Component.text("§aКикнут.")); }
+                OPS.remove(args[0].toLowerCase());
+                DataManager.saveOps(OPS);
+                s.sendMessage(Component.text("§aOP забран у " + args[0]));
             }
         });
         registerAdmin(cm, "ban", (s, args) -> {
             if (args.length > 0) {
                 BANNED.add(args[0].toLowerCase());
+                DataManager.saveBans(BANNED);
                 Player p = MinecraftServer.getConnectionManager().getOnlinePlayerByUsername(args[0]);
-                String reason = args.length > 1 ? String.join(" ", java.util.Arrays.copyOfRange(args, 1, args.length)) : "Причина не указана";
-                if (p != null) p.kick(Component.text("§cЗабанен: " + reason));
+                if (p != null) p.kick(Component.text("§cЗабанен."));
                 s.sendMessage(Component.text("§aЗабанен."));
             }
         });
         registerAdmin(cm, "unban", (s, args) -> {
-            if (args.length > 0) { BANNED.remove(args[0].toLowerCase()); s.sendMessage(Component.text("§aРазбанен.")); }
+            if (args.length > 0 && BANNED.remove(args[0].toLowerCase())) {
+                DataManager.saveBans(BANNED);
+                s.sendMessage(Component.text("§aРазбанен."));
+            }
         });
-        registerAdmin(cm, "pardon", (s, args) -> { // Алиас
-            if (args.length > 0) { BANNED.remove(args[0].toLowerCase()); s.sendMessage(Component.text("§aРазбанен.")); }
+        registerAdmin(cm, "pardon", (s, args) -> {
+            if (args.length > 0 && BANNED.remove(args[0].toLowerCase())) {
+                DataManager.saveBans(BANNED);
+                s.sendMessage(Component.text("§aРазбанен."));
+            }
         });
-
-        // --- Муты ---
         registerAdmin(cm, "mute", (s, args) -> {
-            if (args.length > 0) { MUTED.add(args[0].toLowerCase()); s.sendMessage(Component.text("§aЗамучен.")); }
+            if (args.length > 0) {
+                MUTED.add(args[0].toLowerCase());
+                DataManager.saveMutes(MUTED);
+                s.sendMessage(Component.text("§aЗамучен."));
+            }
         });
         registerAdmin(cm, "unmute", (s, args) -> {
-            if (args.length > 0) { MUTED.remove(args[0].toLowerCase()); s.sendMessage(Component.text("§aРазмучен.")); }
+            if (args.length > 0 && MUTED.remove(args[0].toLowerCase())) {
+                DataManager.saveMutes(MUTED);
+                s.sendMessage(Component.text("§aРазмучен."));
+            }
         });
-
-        // --- Игровые ---
+        registerAdmin(cm, "whitelist", (s, args) -> {
+            if (args.length == 0) return;
+            switch (args[0].toLowerCase()) {
+                case "on" -> { whitelistEnabled = true; s.sendMessage(Component.text("§aВайтлист ВКЛ.")); }
+                case "off" -> { whitelistEnabled = false; s.sendMessage(Component.text("§aВайтлист ВЫКЛ.")); }
+                case "add" -> {
+                    if (args.length > 1) {
+                        WHITELIST.add(args[1].toLowerCase());
+                        DataManager.saveWhitelist(WHITELIST);
+                        s.sendMessage(Component.text("§aДобавлен."));
+                    }
+                }
+                case "remove" -> {
+                    if (args.length > 1) {
+                        WHITELIST.remove(args[1].toLowerCase());
+                        DataManager.saveWhitelist(WHITELIST);
+                        s.sendMessage(Component.text("§aУдален."));
+                    }
+                }
+                case "list" -> s.sendMessage(Component.text("§eВ вайтлисте: " + WHITELIST));
+            }
+        });
+        registerAdmin(cm, "kick", (s, args) -> {
+            if (args.length > 0) {
+                Player p = MinecraftServer.getConnectionManager().getOnlinePlayerByUsername(args[0]);
+                if (p != null) { p.kick(Component.text("§cКикнут.")); s.sendMessage(Component.text("§aКикнут.")); }
+            }
+        });
         registerAdmin(cm, "gamemode", (s, args) -> {
             if (!(s instanceof Player p) || args.length == 0) return;
             switch (args[0].toLowerCase()) {
@@ -136,7 +173,6 @@ public class Main {
                 case "1", "c", "creative" -> p.setGameMode(GameMode.CREATIVE);
                 case "2", "a", "adventure" -> p.setGameMode(GameMode.ADVENTURE);
                 case "3", "sp", "spectator" -> p.setGameMode(GameMode.SPECTATOR);
-                default -> s.sendMessage(Component.text("§cНеверный режим."));
             }
         });
         registerAdmin(cm, "give", (s, args) -> {
@@ -146,9 +182,8 @@ public class Main {
                 if (mat != null) {
                     int amt = args.length > 1 ? Integer.parseInt(args[1]) : 1;
                     p.getInventory().addItemStack(ItemStack.of(mat, amt));
-                    s.sendMessage(Component.text("§aВыдано."));
                 }
-            } catch (Exception e) { s.sendMessage(Component.text("§cОшибка.")); }
+            } catch (Exception ignored) {}
         });
         registerAdmin(cm, "tp", (s, args) -> {
             if (!(s instanceof Player p) || args.length == 0) return;
@@ -158,24 +193,16 @@ public class Main {
         registerAdmin(cm, "clear", (s, args) -> {
             if (!(s instanceof Player p) || args.length == 0) return;
             Player target = MinecraftServer.getConnectionManager().getOnlinePlayerByUsername(args[0]);
-            if (target != null) { target.getInventory().clear(); s.sendMessage(Component.text("§aИнвентарь очищен.")); }
+            if (target != null) target.getInventory().clear();
         });
         registerAdmin(cm, "xp", (s, args) -> {
             if (!(s instanceof Player p) || args.length == 0) return;
-            try {
-                int amt = Integer.parseInt(args[0]);
-                p.setLevel(p.getLevel() + amt);
-                s.sendMessage(Component.text("§aОпыт выдан."));
-            } catch (Exception e) {}
+            try { p.setLevel(p.getLevel() + Integer.parseInt(args[0])); } catch (Exception ignored) {}
         });
-
-        // --- Чат от админа ---
         registerAdmin(cm, "say", (s, args) -> {
             String msg = String.join(" ", args);
             MinecraftServer.getConnectionManager().getOnlinePlayers().forEach(p -> p.sendMessage(Component.text("§d[SERVER] " + msg)));
         });
-
-        // --- Управление миром (время / погода) ---
         registerAdmin(cm, "time", (s, args) -> {
             if (args.length >= 2 && args[0].equalsIgnoreCase("set")) {
                 long time = switch (args[1].toLowerCase()) {
@@ -183,40 +210,17 @@ public class Main {
                     case "night" -> 13000L;
                     default -> Long.parseLong(args[1]);
                 };
-                if (worldInstance != null) {
-                    worldInstance.setTime(time);
-                    s.sendMessage(Component.text("§aВремя установлено."));
-                }
+                if (worldInstance != null) worldInstance.setTime(time);
             }
         });
-        registerAdmin(cm, "weather", (s, args) -> {
-            if (args.length > 0) {
-                // В Minestom пока нет полноценной погоды, это заглушка
-                s.sendMessage(Component.text("§eПогода (заглушка): " + args[0]));
-            }
-        });
-
-        // --- Whitelist ---
-        registerAdmin(cm, "whitelist", (s, args) -> {
-            if (args.length == 0) return;
-            switch (args[0].toLowerCase()) {
-                case "on" -> { whitelistEnabled = true; s.sendMessage(Component.text("§aВайтлист ВКЛ.")); }
-                case "off" -> { whitelistEnabled = false; s.sendMessage(Component.text("§aВайтлист ВЫКЛ.")); }
-                case "add" -> { if (args.length > 1) { WHITELIST.add(args[1].toLowerCase()); s.sendMessage(Component.text("§aДобавлен.")); } }
-                case "remove" -> { if (args.length > 1) { WHITELIST.remove(args[1].toLowerCase()); s.sendMessage(Component.text("§aУдален.")); } }
-                case "list" -> s.sendMessage(Component.text("§eВ вайтлисте: " + WHITELIST));
-            }
-        });
-
-        // --- Заглушки для команд, которых пока нет ---
-        registerAdmin(cm, "save-all", (s, args) -> s.sendMessage(Component.text("§aСохранено (заглушка).")));
-        registerAdmin(cm, "difficulty", (s, args) -> s.sendMessage(Component.text("§eСложность (заглушка): " + args[0])));
+        registerAdmin(cm, "weather", (s, args) -> s.sendMessage(Component.text("§eПогода (заглушка): " + args[0])));
+        registerAdmin(cm, "save-all", (s, args) -> s.sendMessage(Component.text("§aСохранено.")));
+        registerAdmin(cm, "difficulty", (s, args) -> s.sendMessage(Component.text("§eСложность (заглушка).")));
         registerAdmin(cm, "gamerule", (s, args) -> s.sendMessage(Component.text("§eГеймрулы (заглушка).")));
         registerAdmin(cm, "ban-ip", (s, args) -> s.sendMessage(Component.text("§cBan-IP пока не реализован.")));
         registerAdmin(cm, "banlist", (s, args) -> s.sendMessage(Component.text("§eБаны: " + BANNED)));
     }
 
-    // --- Вспомогательные методы ---
     public interface Executor { void run(net.minestom.server.command.CommandSender s, String[] args); }
 
     private static void registerAdmin(CommandManager cm, String name, Executor executor) {
